@@ -199,6 +199,11 @@
       word-break: normal !important;
       font-size: 7pt;
     }
+    /* Collapsed CLEANED rows have multiple rule IDs; allow wrapping */
+    td.rule-multi {
+      white-space: normal !important;
+      word-break: break-all !important;
+    }
 
     /* Print column widths */
     th:nth-child(1), td:nth-child(1) { width: 4%; }
@@ -1613,10 +1618,12 @@ function renderTable() {
     const badgeClass = issue.severity === "ERROR" ? "badge-error" :
                        issue.severity === "WARNING" ? "badge-warning" : "badge-cleaned";
 
+    var ruleClass = issue._collapsedIssues ? "px-3 py-2 text-sm font-mono rule-multi" : "px-3 py-2 text-sm font-mono";
+
     tr.innerHTML =
       '<td class="px-3 py-2 font-mono text-xs" style="color: #1a1a1a;"><span class="chevron" id="chevron-' + (start + idx) + '"></span>' + issue.row_number + '</td>' +
       '<td class="px-3 py-2"><span class="inline-block px-2 py-1 rounded-full text-sm font-medium whitespace-nowrap ' + badgeClass + '">' + issue.severity + '</span></td>' +
-      '<td class="px-3 py-2 text-sm font-mono" style="color: #555555;">' + escapeHtml(issue.rule_id) + '</td>' +
+      '<td class="' + ruleClass + '" style="color: #555555;">' + escapeHtml(issue.rule_id) + '</td>' +
       '<td class="px-3 py-2 text-sm" style="color: #1a1a1a;">' + escapeHtml(issue.field) + '</td>' +
       '<td class="px-3 py-2 text-sm" style="color: #1a1a1a;">' + escapeHtml(issue.message) + '</td>' +
       '<td class="px-3 py-2 text-sm max-w-[150px] truncate" style="color: #555555;">' + escapeHtml(String(issue.original_value || "")) + '</td>' +
