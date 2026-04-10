@@ -306,20 +306,22 @@ Before executing this pipeline against a production system, run these checks:
 
 ## Output Verification
 
-### SHA256 Hash Comparison (Idempotency Proof)
+### Idempotency Verification
 
-The pipeline records the SHA256 hash of the input file with every run. Running the pipeline twice on the same input produces identical output:
+The pipeline is logically idempotent: running it twice on the same input produces the same records accepted, the same records rejected, and the same validation issues reported. Runtime metadata (run_id, run_timestamp, created_at, updated_at) differs between runs by design since each execution is a distinct event.
+
+The input file's SHA256 hash is recorded with every run. The customer data written to SQLite is deterministic for the same input:
 
 ```bash
 # First run
-python pipeline.py data/customers.csv
+python pipeline.py data/customers.csv --date 2026-04-10
 # Input hash: e4606bf2155b3a154fe47148cf9ab1c793c31230d0827e244f9b44960cf0a253
 
 # Second run
-python pipeline.py data/customers.csv
+python pipeline.py data/customers.csv --date 2026-04-10
 # Input hash: e4606bf2155b3a154fe47148cf9ab1c793c31230d0827e244f9b44960cf0a253
 
-# Verify identical output
+# Verify customer data is identical across runs
 python -c "
 import hashlib, sqlite3
 conn = sqlite3.connect('output/customers.db')
@@ -328,10 +330,9 @@ c.execute('SELECT * FROM customers ORDER BY customer_id')
 print(hashlib.sha256(str(c.fetchall()).encode()).hexdigest())
 conn.close()
 "
-# Output: fc5a837b6022ed92c346df4d5789b2ed4fc310a336cd54564fe0ef5f095a60ca
 ```
 
-Both runs produce the same customer data hash because the pipeline uses DROP/recreate for the SQLite tables, ensuring no state leakage between runs.
+Both runs produce the same customer data hash. The pipeline uses DROP/recreate for the SQLite tables, ensuring no state leakage between runs. The pipeline_runs table will contain different run_ids and timestamps, which is expected and correct.
 
 ### SQL Queries for Post-Load Validation
 

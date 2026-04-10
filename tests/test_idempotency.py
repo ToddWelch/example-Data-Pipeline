@@ -1,10 +1,18 @@
 """
 Idempotency tests for the customer data pipeline.
 
-Runs the pipeline twice on the same input file and verifies:
-- SQLite customer rows are identical between runs
-- Validation report issues are identical (except run_id and timestamp)
-- pipeline_runs table shows the same input_hash but different run_ids
+Verifies logical equivalence between two runs on the same input:
+- The same customer records are accepted (identical data, excluding
+  runtime metadata like created_at and updated_at)
+- The same validation issues are reported (identical rule_id, severity,
+  field, message; excluding run_id which differs per execution)
+- The same counts are produced (clean, rejected, warnings, cleaning actions)
+- The pipeline_runs table shows the same input_hash but different run_ids
+  and timestamps, which is expected since each execution is a distinct event
+
+Runtime metadata (run_id, run_timestamp, created_at, updated_at) is
+intentionally excluded from comparison. The pipeline is logically
+idempotent, not byte-for-byte identical at the database level.
 """
 
 import json
@@ -18,8 +26,9 @@ from datetime import date
 
 class TestIdempotency(unittest.TestCase):
     """
-    Run the pipeline twice on the same CSV and verify identical outputs.
-    Uses data/customers.csv as the input file (the real dataset).
+    Run the pipeline twice on the same CSV and verify logically identical
+    outputs. Uses data/customers.csv as the input file (the real dataset).
+    Runtime metadata (run_id, timestamps) is excluded from comparison.
     """
 
     @classmethod

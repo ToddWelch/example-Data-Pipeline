@@ -115,6 +115,7 @@ def run_pipeline(
 
     # Second pass: duplicate email detection among accepted rows only
     seen_emails: set[str] = set()
+    second_pass_rejects: set[int] = set()
     for i, cleaned_record in enumerate(cleaned_records):
         if i in error_row_indices:
             continue
@@ -134,8 +135,18 @@ def run_pipeline(
                 )
                 issues_by_row[i].append(dup_issue)
                 error_row_indices.add(i)
+                second_pass_rejects.add(i)
             else:
                 seen_emails.add(email_lower)
+
+    # Strip warnings from rows rejected by R03 in the second pass.
+    # These rows passed the first pass (so warnings were generated),
+    # but are now rejected. Warnings only belong on loaded records.
+    for i in second_pass_rejects:
+        issues_by_row[i] = [
+            issue for issue in issues_by_row[i]
+            if issue.severity != Severity.WARNING
+        ]
 
     # Collect all issues and build clean customer list
     clean_customers = []

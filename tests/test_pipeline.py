@@ -386,5 +386,76 @@ CUST-DUP,Bob,Jones,bob@example.com,(555) 222-2222,1985-03-20,2021-05-10,Seattle,
         self.assertEqual(len(renamed), 1)
 
 
+# -----------------------------------------------------------------
+# Regression test: R03 second-pass rejection strips warnings
+# -----------------------------------------------------------------
+
+R03_WARNING_STRIP_CSV = """\
+customer_id,first_name,last_name,email,phone,date_of_birth,signup_date,city,state,zip_code,loyalty_tier,total_spend,num_orders,last_order_date,newsletter_opt_in,preferred_contact,notes
+CUST-A,Alice,Smith,alice@example.com,(555) 111-2222,1990-01-15,2020-01-01,Boston,MA,02101,Gold,500.00,5,2023-01-01,True,email,
+CUST-B,Bob,Jones,alice@example.com,(555) 333-4444,1985-06-20,2019-06-01,Denver,CO,80201,Bronze,9500.00,2,2023-06-01,True,phone,
+"""
+
+
+class TestR03WarningStrip(unittest.TestCase):
+    """
+    Regression: Row B has the same email as Row A (duplicate) AND an
+    AOV outlier warning (9500/2 = $4750 > $1000). After the second-pass
+    R03 rejection, Row B should have zero WARNING issues because warnings
+    only belong on loaded records.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = tempfile.mkdtemp(prefix="r03_warn_test_")
+        cls.csv_path = os.path.join(cls.tmpdir, "test.csv")
+        cls.db_path = os.path.join(cls.tmpdir, "test.db")
+        cls.report_path = os.path.join(cls.tmpdir, "test_report.json")
+
+        with open(cls.csv_path, "w", encoding="utf-8") as f:
+            f.write(R03_WARNING_STRIP_CSV)
+
+        from pipeline import run_pipeline
+        cls.result = run_pipeline(
+            input_file=cls.csv_path,
+            output_db=cls.db_path,
+            report_path=cls.report_path,
+            dry_run=False,
+            verbose=False,
+            reference_date=date(2026, 4, 10),
+        )
+
+        with open(cls.report_path, "r", encoding="utf-8") as f:
+            cls.report = json.load(f)
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    def test_first_row_accepted(self):
+        """Row A (first occurrence of alice@example.com) should be accepted."""
+        self.assertEqual(self.result["clean_records"], 1)
+
+    def test_second_row_rejected_r03(self):
+        """Row B (duplicate email) should be rejected with R03."""
+        self.assertEqual(self.result["rejected_records"], 1)
+        r03_issues = [
+            i for i in self.report["issues"]
+            if i["rule_id"] == "R03_DUPLICATE_EMAIL"
+        ]
+        self.assertEqual(len(r03_issues), 1)
+        self.assertEqual(r03_issues[0]["customer_id"], "CUST-B")
+
+    def test_rejected_row_has_no_warnings(self):
+        """Row B should have zero WARNING issues after R03 rejection."""
+        row_b_warnings = [
+            i for i in self.report["issues"]
+            if i["customer_id"] == "CUST-B" and i["severity"] == "WARNING"
+        ]
+        self.assertEqual(len(row_b_warnings), 0,
+                         f"Expected 0 warnings on rejected row, got: {row_b_warnings}")
+
+
 if __name__ == "__main__":
     unittest.main()
