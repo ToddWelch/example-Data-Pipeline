@@ -437,6 +437,9 @@ AI did not make architectural decisions without human review. Every plan was app
 - The HTML report loads Tailwind CSS and PapaParse from CDN, requiring internet access for styling and CSV parsing
 - Phone normalization assumes US phone numbers (10-digit with area code)
 - No multi-threaded or async processing; performance on datasets over 50,000 rows has not been tested
+- The HTML report uses the browser's current date for age and future-date rules, which can produce different results from the Python pipeline if run on a different day than the --date flag specifies. The Python pipeline is authoritative; the HTML report is a convenience viewer.
+- The HTML report does not implement R36 (duplicate customer ID) and numbers rows starting at 2 instead of 1. Aligning JS parity with all 36 Python rules is a roadmap item.
+- Error handling for malformed inputs (wrong headers, non-UTF-8 encoding, locked database files) produces raw tracebacks rather than operator-friendly messages. The pipeline was built against a known-good CSV; production hardening is documented in the Roadmap.
 
 ---
 
