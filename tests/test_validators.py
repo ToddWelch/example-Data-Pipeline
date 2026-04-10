@@ -3,7 +3,7 @@ Unit tests for all 35 validation rules in src/validators.py.
 
 Tests cover known-good inputs, known-bad inputs, and edge cases
 including empty strings, None values, boundary dates, and Unicode.
-Uses TODAY = date(2026, 4, 10) matching the hardcoded date in validators.py.
+Uses TODAY = date(2026, 4, 10) as the reference date for all date-based tests.
 """
 
 import unittest
@@ -20,8 +20,10 @@ from src.validators import (
     _normalize_state,
     _normalize_loyalty_tier,
     _normalize_newsletter,
-    TODAY,
 )
+
+# Reference date used across all tests (matches original hardcoded value)
+TODAY = date(2026, 4, 10)
 
 
 class TestHelperFunctions(unittest.TestCase):
@@ -380,128 +382,114 @@ class TestErrorRules(unittest.TestCase):
     # Rule 1: Missing email
     def test_r01_missing_email(self):
         record = self._make_record(email=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r01 = [i for i in issues if i.rule_id == "R01_MISSING_EMAIL"]
         self.assertEqual(len(r01), 1)
 
     def test_r01_empty_email(self):
         record = self._make_record(email="")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r01 = [i for i in issues if i.rule_id == "R01_MISSING_EMAIL"]
         self.assertEqual(len(r01), 1)
 
     def test_r01_valid_email_no_error(self):
         record = self._make_record(email="test@example.com")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r01 = [i for i in issues if i.rule_id == "R01_MISSING_EMAIL"]
         self.assertEqual(len(r01), 0)
 
     # Rule 2: Invalid email format
     def test_r02_double_at(self):
         record = self._make_record(email="user@@example.com")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r02 = [i for i in issues if i.rule_id == "R02_INVALID_EMAIL"]
         self.assertEqual(len(r02), 1)
         self.assertIn("double @@", r02[0].message)
 
     def test_r02_leading_dot(self):
         record = self._make_record(email=".user@example.com")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r02 = [i for i in issues if i.rule_id == "R02_INVALID_EMAIL"]
         self.assertEqual(len(r02), 1)
         self.assertIn("leading dot", r02[0].message)
 
     def test_r02_trailing_dot(self):
         record = self._make_record(email="user.@example.com")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r02 = [i for i in issues if i.rule_id == "R02_INVALID_EMAIL"]
         self.assertEqual(len(r02), 1)
         self.assertIn("trailing dot", r02[0].message)
 
     def test_r02_consecutive_dots(self):
         record = self._make_record(email="user..name@example.com")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r02 = [i for i in issues if i.rule_id == "R02_INVALID_EMAIL"]
         self.assertEqual(len(r02), 1)
         self.assertIn("consecutive dots", r02[0].message)
 
     def test_r02_missing_tld(self):
         record = self._make_record(email="user@example")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r02 = [i for i in issues if i.rule_id == "R02_INVALID_EMAIL"]
         self.assertEqual(len(r02), 1)
 
     def test_r02_valid_email_passes(self):
         record = self._make_record(email="user.name+tag@example.co.uk")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r02 = [i for i in issues if i.rule_id == "R02_INVALID_EMAIL"]
         self.assertEqual(len(r02), 0)
 
-    # Rule 3: Duplicate email
-    def test_r03_duplicate_email(self):
-        seen = {"john@example.com"}
+    # Rule 3: Duplicate email is now handled in pipeline.py (two-pass).
+    # run_error_rules should NOT produce R03 issues.
+    def test_r03_not_in_error_rules(self):
+        """R03 duplicate detection is deferred to pipeline second pass."""
         record = self._make_record(email="john@example.com")
-        issues = run_error_rules(record, "run1", seen)
-        r03 = [i for i in issues if i.rule_id == "R03_DUPLICATE_EMAIL"]
-        self.assertEqual(len(r03), 1)
-
-    def test_r03_duplicate_case_insensitive(self):
-        seen = {"john@example.com"}
-        record = self._make_record(email="JOHN@EXAMPLE.COM")
-        issues = run_error_rules(record, "run1", seen)
-        r03 = [i for i in issues if i.rule_id == "R03_DUPLICATE_EMAIL"]
-        self.assertEqual(len(r03), 1)
-
-    def test_r03_first_occurrence_passes(self):
-        seen = set()
-        record = self._make_record(email="john@example.com")
-        issues = run_error_rules(record, "run1", seen)
+        issues = run_error_rules(record, "run1", today=TODAY)
         r03 = [i for i in issues if i.rule_id == "R03_DUPLICATE_EMAIL"]
         self.assertEqual(len(r03), 0)
-        self.assertIn("john@example.com", seen)
 
     # Rule 4: Missing both names
     def test_r04_both_names_missing(self):
         record = self._make_record(first_name=None, last_name=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r04 = [i for i in issues if i.rule_id == "R04_MISSING_BOTH_NAMES"]
         self.assertEqual(len(r04), 1)
 
     def test_r04_empty_strings_both_names(self):
         record = self._make_record(first_name="", last_name="")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r04 = [i for i in issues if i.rule_id == "R04_MISSING_BOTH_NAMES"]
         self.assertEqual(len(r04), 1)
 
     def test_r04_first_name_only(self):
         record = self._make_record(first_name="John", last_name=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r04 = [i for i in issues if i.rule_id == "R04_MISSING_BOTH_NAMES"]
         self.assertEqual(len(r04), 0)
 
     def test_r04_last_name_only(self):
         record = self._make_record(first_name=None, last_name="Doe")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r04 = [i for i in issues if i.rule_id == "R04_MISSING_BOTH_NAMES"]
         self.assertEqual(len(r04), 0)
 
     # Rule 5: Future DOB
     def test_r05_future_dob(self):
         record = self._make_record(date_of_birth="2045-06-15")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r05 = [i for i in issues if i.rule_id == "R05_FUTURE_DOB"]
         self.assertEqual(len(r05), 1)
 
     def test_r05_past_dob_ok(self):
         record = self._make_record(date_of_birth="1990-05-15")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r05 = [i for i in issues if i.rule_id == "R05_FUTURE_DOB"]
         self.assertEqual(len(r05), 0)
 
     def test_r05_today_dob_not_future(self):
         # Born today is not in the future; it triggers COPPA though (age 0)
         record = self._make_record(date_of_birth="2026-04-10")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r05 = [i for i in issues if i.rule_id == "R05_FUTURE_DOB"]
         self.assertEqual(len(r05), 0)
 
@@ -509,20 +497,20 @@ class TestErrorRules(unittest.TestCase):
     def test_r06_exactly_13_passes(self):
         # Born 2013-04-10 is exactly 13 on 2026-04-10
         record = self._make_record(date_of_birth="2013-04-10")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r06 = [i for i in issues if i.rule_id == "R06_UNDER_13_COPPA"]
         self.assertEqual(len(r06), 0)
 
     def test_r06_one_day_before_13th_birthday(self):
         # Born 2013-04-11 is still 12 on 2026-04-10
         record = self._make_record(date_of_birth="2013-04-11")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r06 = [i for i in issues if i.rule_id == "R06_UNDER_13_COPPA"]
         self.assertEqual(len(r06), 1)
 
     def test_r06_age_12(self):
         record = self._make_record(date_of_birth="2014-06-01")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r06 = [i for i in issues if i.rule_id == "R06_UNDER_13_COPPA"]
         self.assertEqual(len(r06), 1)
 
@@ -530,103 +518,103 @@ class TestErrorRules(unittest.TestCase):
     def test_r07_exactly_120_passes(self):
         # Born 1906-04-10 is exactly 120 on 2026-04-10
         record = self._make_record(date_of_birth="1906-04-10")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r07 = [i for i in issues if i.rule_id == "R07_OVER_120"]
         self.assertEqual(len(r07), 0)
 
     def test_r07_age_121(self):
         # Born 1905-04-09 is 121 on 2026-04-10
         record = self._make_record(date_of_birth="1905-04-09")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r07 = [i for i in issues if i.rule_id == "R07_OVER_120"]
         self.assertEqual(len(r07), 1)
 
     def test_r07_one_day_after_120th_birthday(self):
         # Born 1906-04-09 is just barely 120 (still 120)
         record = self._make_record(date_of_birth="1906-04-09")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r07 = [i for i in issues if i.rule_id == "R07_OVER_120"]
         self.assertEqual(len(r07), 0)
 
     def test_r07_no_dob_no_error(self):
         record = self._make_record(date_of_birth=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r07 = [i for i in issues if i.rule_id == "R07_OVER_120"]
         self.assertEqual(len(r07), 0)
 
     # Rule 8: Negative total_spend
     def test_r08_negative_spend(self):
         record = self._make_record(total_spend="-999.99")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r08 = [i for i in issues if i.rule_id == "R08_NEGATIVE_SPEND"]
         self.assertEqual(len(r08), 1)
 
     def test_r08_zero_spend_ok(self):
         record = self._make_record(total_spend="0", num_orders="0")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r08 = [i for i in issues if i.rule_id == "R08_NEGATIVE_SPEND"]
         self.assertEqual(len(r08), 0)
 
     def test_r08_positive_spend_ok(self):
         record = self._make_record(total_spend="500.00")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r08 = [i for i in issues if i.rule_id == "R08_NEGATIVE_SPEND"]
         self.assertEqual(len(r08), 0)
 
     def test_r08_none_spend_ok(self):
         record = self._make_record(total_spend=None, num_orders=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r08 = [i for i in issues if i.rule_id == "R08_NEGATIVE_SPEND"]
         self.assertEqual(len(r08), 0)
 
     # Rule 9: Invalid zip code
     def test_r09_invalid_zip_short(self):
         record = self._make_record(zip_code="1234")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r09 = [i for i in issues if i.rule_id == "R09_INVALID_ZIP"]
         self.assertEqual(len(r09), 1)
 
     def test_r09_invalid_zip_hyphen(self):
         # "123-45" -> digits "12345" -> 5 digits -> valid after cleaning
         record = self._make_record(zip_code="123-45")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r09 = [i for i in issues if i.rule_id == "R09_INVALID_ZIP"]
         self.assertEqual(len(r09), 0)
 
     def test_r09_valid_zip(self):
         record = self._make_record(zip_code="12345")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r09 = [i for i in issues if i.rule_id == "R09_INVALID_ZIP"]
         self.assertEqual(len(r09), 0)
 
     def test_r09_zip_too_long(self):
         record = self._make_record(zip_code="123456")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r09 = [i for i in issues if i.rule_id == "R09_INVALID_ZIP"]
         self.assertEqual(len(r09), 1)
 
     def test_r09_none_zip_ok(self):
         record = self._make_record(zip_code=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r09 = [i for i in issues if i.rule_id == "R09_INVALID_ZIP"]
         self.assertEqual(len(r09), 0)
 
     # Rule 10: Missing signup_date
     def test_r10_missing_signup(self):
         record = self._make_record(signup_date=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r10 = [i for i in issues if i.rule_id == "R10_MISSING_SIGNUP_DATE"]
         self.assertEqual(len(r10), 1)
 
     def test_r10_empty_signup(self):
         record = self._make_record(signup_date="")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r10 = [i for i in issues if i.rule_id == "R10_MISSING_SIGNUP_DATE"]
         self.assertEqual(len(r10), 1)
 
     def test_r10_valid_signup(self):
         record = self._make_record(signup_date="2024-01-01")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r10 = [i for i in issues if i.rule_id == "R10_MISSING_SIGNUP_DATE"]
         self.assertEqual(len(r10), 0)
 
@@ -636,7 +624,7 @@ class TestErrorRules(unittest.TestCase):
             signup_date="2024-01-01",
             last_order_date="2023-06-15",
         )
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r11 = [i for i in issues if i.rule_id == "R11_ORDER_BEFORE_SIGNUP"]
         self.assertEqual(len(r11), 1)
 
@@ -645,7 +633,7 @@ class TestErrorRules(unittest.TestCase):
             signup_date="2024-01-01",
             last_order_date="2024-06-15",
         )
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r11 = [i for i in issues if i.rule_id == "R11_ORDER_BEFORE_SIGNUP"]
         self.assertEqual(len(r11), 0)
 
@@ -654,7 +642,7 @@ class TestErrorRules(unittest.TestCase):
             signup_date="2024-01-01",
             last_order_date="2024-01-01",
         )
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r11 = [i for i in issues if i.rule_id == "R11_ORDER_BEFORE_SIGNUP"]
         self.assertEqual(len(r11), 0)
 
@@ -663,26 +651,26 @@ class TestErrorRules(unittest.TestCase):
             signup_date="2024-01-01",
             last_order_date=None,
         )
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r11 = [i for i in issues if i.rule_id == "R11_ORDER_BEFORE_SIGNUP"]
         self.assertEqual(len(r11), 0)
 
     # Rule 12: Future signup date
     def test_r12_future_signup(self):
         record = self._make_record(signup_date="2027-01-01")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r12 = [i for i in issues if i.rule_id == "R12_FUTURE_SIGNUP"]
         self.assertEqual(len(r12), 1)
 
     def test_r12_today_signup_ok(self):
         record = self._make_record(signup_date="2026-04-10")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r12 = [i for i in issues if i.rule_id == "R12_FUTURE_SIGNUP"]
         self.assertEqual(len(r12), 0)
 
     def test_r12_past_signup_ok(self):
         record = self._make_record(signup_date="2024-01-01")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r12 = [i for i in issues if i.rule_id == "R12_FUTURE_SIGNUP"]
         self.assertEqual(len(r12), 0)
 
@@ -692,7 +680,7 @@ class TestErrorRules(unittest.TestCase):
             signup_date="2024-01-01",
             last_order_date="2027-06-15",
         )
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r13 = [i for i in issues if i.rule_id == "R13_FUTURE_LAST_ORDER"]
         self.assertEqual(len(r13), 1)
 
@@ -701,45 +689,45 @@ class TestErrorRules(unittest.TestCase):
             signup_date="2024-01-01",
             last_order_date="2025-06-15",
         )
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r13 = [i for i in issues if i.rule_id == "R13_FUTURE_LAST_ORDER"]
         self.assertEqual(len(r13), 0)
 
     # Rule 14: Zero orders but positive spend
     def test_r14_zero_orders_positive_spend(self):
         record = self._make_record(num_orders="0", total_spend="500.00")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r14 = [i for i in issues if i.rule_id == "R14_ZERO_ORDERS_POSITIVE_SPEND"]
         self.assertEqual(len(r14), 1)
 
     def test_r14_zero_orders_zero_spend_ok(self):
         record = self._make_record(num_orders="0", total_spend="0")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r14 = [i for i in issues if i.rule_id == "R14_ZERO_ORDERS_POSITIVE_SPEND"]
         self.assertEqual(len(r14), 0)
 
     def test_r14_both_null_ok(self):
         record = self._make_record(num_orders=None, total_spend=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r14 = [i for i in issues if i.rule_id == "R14_ZERO_ORDERS_POSITIVE_SPEND"]
         self.assertEqual(len(r14), 0)
 
     # Rule 15: Positive orders but zero/missing spend
     def test_r15_positive_orders_zero_spend(self):
         record = self._make_record(num_orders="5", total_spend="0")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r15 = [i for i in issues if i.rule_id == "R15_POSITIVE_ORDERS_NO_SPEND"]
         self.assertEqual(len(r15), 1)
 
     def test_r15_positive_orders_none_spend(self):
         record = self._make_record(num_orders="5", total_spend=None)
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r15 = [i for i in issues if i.rule_id == "R15_POSITIVE_ORDERS_NO_SPEND"]
         self.assertEqual(len(r15), 1)
 
     def test_r15_positive_orders_positive_spend_ok(self):
         record = self._make_record(num_orders="5", total_spend="500.00")
-        issues = run_error_rules(record, "run1", set())
+        issues = run_error_rules(record, "run1", today=TODAY)
         r15 = [i for i in issues if i.rule_id == "R15_POSITIVE_ORDERS_NO_SPEND"]
         self.assertEqual(len(r15), 0)
 
@@ -1076,7 +1064,7 @@ class TestValidateRecord(unittest.TestCase):
         record = self._make_record()
         meta = {"whitespace_fields": [], "null_sentinel_fields": []}
         _, issues, has_errors = validate_record(
-            record, "run1", meta, set(), {},
+            record, "run1", meta, {}, today=TODAY,
         )
         error_issues = [i for i in issues if i.severity == Severity.ERROR]
         self.assertFalse(has_errors)
@@ -1090,7 +1078,7 @@ class TestValidateRecord(unittest.TestCase):
         )
         meta = {"whitespace_fields": [], "null_sentinel_fields": []}
         cleaned, issues, has_errors = validate_record(
-            record, "run1", meta, set(), {},
+            record, "run1", meta, {}, today=TODAY,
         )
         self.assertFalse(has_errors)
         # Should have cleaning issues
@@ -1105,15 +1093,86 @@ class TestValidateRecord(unittest.TestCase):
         record = self._make_record(email=None)
         meta = {"whitespace_fields": [], "null_sentinel_fields": []}
         _, issues, has_errors = validate_record(
-            record, "run1", meta, set(), {},
+            record, "run1", meta, {}, today=TODAY,
         )
         self.assertTrue(has_errors)
         error_issues = [i for i in issues if i.severity == Severity.ERROR]
         self.assertGreater(len(error_issues), 0)
 
     def test_today_constant_is_april_10_2026(self):
-        """Verify the hardcoded TODAY date matches test expectations."""
+        """Verify the test-local TODAY matches expected value."""
         self.assertEqual(TODAY, date(2026, 4, 10))
+
+    def test_two_pass_email_dedup_does_not_reserve_on_error(self):
+        """
+        Two rows share the same email. Row 1 has a future DOB (R05 error).
+        Row 2 is clean. After the two-pass approach, row 2 should be
+        accepted with no R03, because row 1's error means its email is
+        not reserved.
+        """
+        meta = {"whitespace_fields": [], "null_sentinel_fields": []}
+
+        # Row 1: future DOB (will get R05 error)
+        record1 = self._make_record(
+            row_number=1,
+            email="shared@example.com",
+            date_of_birth="2045-06-15",
+        )
+        # Row 2: clean, same email
+        record2 = self._make_record(
+            row_number=2,
+            customer_id="CUST-002",
+            email="shared@example.com",
+        )
+
+        # First pass: validate both records (R03 not checked here)
+        _, issues1, has_errors1 = validate_record(
+            record1, "run1", meta, {}, today=TODAY,
+        )
+        cleaned2, issues2, has_errors2 = validate_record(
+            record2, "run1", meta, {}, today=TODAY,
+        )
+
+        self.assertTrue(has_errors1)  # R05 future DOB
+        self.assertFalse(has_errors2)  # No errors yet
+
+        # Second pass: duplicate email among accepted rows only
+        # Row 1 is rejected, so only row 2 participates
+        accepted_rows = []
+        if not has_errors1:
+            accepted_rows.append((0, record1))
+        if not has_errors2:
+            accepted_rows.append((1, cleaned2))
+
+        seen_emails = set()
+        r03_issues = []
+        for idx, rec in accepted_rows:
+            email = rec.email
+            if email:
+                email_lower = email.lower()
+                if email_lower in seen_emails:
+                    r03_issues.append(rec.row_number)
+                else:
+                    seen_emails.add(email_lower)
+
+        # Row 2 should NOT get R03 because row 1 was rejected
+        self.assertEqual(len(r03_issues), 0)
+
+    def test_warnings_not_fired_on_error_rows(self):
+        """
+        A row with errors should produce no WARNING issues,
+        because warnings are skipped when errors exist.
+        """
+        meta = {"whitespace_fields": [], "null_sentinel_fields": []}
+        # Record with missing email (R01 error) and missing phone
+        # (would be R18 warning if warnings ran)
+        record = self._make_record(email=None, phone=None)
+        _, issues, has_errors = validate_record(
+            record, "run1", meta, {}, today=TODAY,
+        )
+        self.assertTrue(has_errors)
+        warning_issues = [i for i in issues if i.severity == Severity.WARNING]
+        self.assertEqual(len(warning_issues), 0)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from datetime import date
 
 
 # Synthetic CSV data: 15 rows covering various issue types.
@@ -77,6 +78,7 @@ class TestPipelineIntegration(unittest.TestCase):
             report_path=cls.report_path,
             dry_run=False,
             verbose=False,
+            reference_date=date(2026, 4, 10),
         )
 
         # Load the report for inspection
@@ -316,6 +318,72 @@ class TestPipelineIntegration(unittest.TestCase):
         self.assertEqual(summary["total_records"], self.result["total_records"])
         self.assertEqual(summary["clean_records"], self.result["clean_records"])
         self.assertEqual(summary["rejected_records"], self.result["rejected_records"])
+
+
+class TestDuplicateCustomerIdIssue(unittest.TestCase):
+    """Test that duplicate customer_id produces R36_DUPLICATE_CUSTOMER_ID."""
+
+    DUPLICATE_ID_CSV = """\
+customer_id,first_name,last_name,email,phone,date_of_birth,signup_date,city,state,zip_code,loyalty_tier,total_spend,num_orders,last_order_date,newsletter_opt_in,preferred_contact,notes
+CUST-DUP,Alice,Smith,alice@example.com,(555) 111-1111,1990-01-15,2020-01-01,Portland,OR,97201,Gold,500.00,5,2024-06-15,True,email,
+CUST-DUP,Bob,Jones,bob@example.com,(555) 222-2222,1985-03-20,2021-05-10,Seattle,WA,98101,Silver,300.00,3,2023-12-01,True,phone,
+"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = tempfile.mkdtemp(prefix="pipeline_dup_id_test_")
+        cls.csv_path = os.path.join(cls.tmpdir, "test_dup_id.csv")
+        cls.db_path = os.path.join(cls.tmpdir, "test_dup_id.db")
+        cls.report_path = os.path.join(cls.tmpdir, "test_dup_id_report.json")
+
+        with open(cls.csv_path, "w", encoding="utf-8") as f:
+            f.write(cls.DUPLICATE_ID_CSV)
+
+        from pipeline import run_pipeline
+        cls.result = run_pipeline(
+            input_file=cls.csv_path,
+            output_db=cls.db_path,
+            report_path=cls.report_path,
+            dry_run=False,
+            verbose=False,
+            reference_date=date(2026, 4, 10),
+        )
+
+        with open(cls.report_path, "r", encoding="utf-8") as f:
+            cls.report = json.load(f)
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    def test_r36_duplicate_customer_id_logged(self):
+        """Second row with same customer_id should get R36 CLEANED issue."""
+        r36_issues = [
+            i for i in self.report["issues"]
+            if i["rule_id"] == "R36_DUPLICATE_CUSTOMER_ID"
+        ]
+        self.assertEqual(len(r36_issues), 1)
+        self.assertEqual(r36_issues[0]["severity"], "CLEANED")
+        self.assertIn("CUST-DUP", r36_issues[0]["original_value"])
+
+    def test_r36_both_records_loaded(self):
+        """Both records should be loaded (one with renamed ID)."""
+        self.assertEqual(self.result["clean_records"], 2)
+
+    def test_r36_renamed_id_in_sqlite(self):
+        """The renamed customer_id should be in the database."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT customer_id FROM customers ORDER BY customer_id"
+        )
+        ids = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        # One should be CUST-DUP, the other CUST-DUP-R3 (row 3 = CSV row 3)
+        self.assertIn("CUST-DUP", ids)
+        renamed = [i for i in ids if i.startswith("CUST-DUP-R")]
+        self.assertEqual(len(renamed), 1)
 
 
 if __name__ == "__main__":

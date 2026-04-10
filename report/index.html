@@ -627,7 +627,6 @@ function normalizeNewsletter(value) {
 function validateRecords(rows) {
   const today = getToday();
   const allIssues = [];
-  const seenEmails = new Set();
   const fuzzyDupes = {};
   let cleanCount = 0;
   let rejectedCount = 0;
@@ -639,6 +638,15 @@ function validateRecords(rows) {
   // Store original rows for detail view
   const originalRows = rows.map(r => Object.assign({}, r));
 
+  // Per-row storage for two-pass processing
+  const rowData = [];       // cleaned data objects
+  const rowCleanIssues = []; // CLEANED issues per row
+  const rowErrorIssues = []; // ERROR issues per row (excluding R03)
+  const errorRowIndices = new Set();
+
+  // ===================================================================
+  // FIRST PASS: cleaning + error rules (R01-R02, R04-R15), NO R03
+  // ===================================================================
   rows.forEach(function(row, idx) {
     const rowNum = idx + 2; // 1-based, plus header row
     const issues = [];
@@ -840,7 +848,7 @@ function validateRecords(rows) {
     });
 
     // =====================================================================
-    // ERROR RULES (1-15)
+    // ERROR RULES (1-2, 4-15) -- R03 handled in second pass
     // =====================================================================
     const errorIssues = [];
 
@@ -858,7 +866,6 @@ function validateRecords(rows) {
       });
     } else {
       const email = data.email;
-      const emailLower = email.toLowerCase();
       let emailInvalid = false;
 
       // Rule 2: Invalid email format
@@ -906,20 +913,7 @@ function validateRecords(rows) {
           emailInvalid = true;
         }
       }
-
-      // Rule 3: Duplicate email
-      if (!emailInvalid) {
-        if (seenEmails.has(emailLower)) {
-          errorIssues.push({
-            row_number: rowNum, customer_id: data.customer_id,
-            field: "email", rule_id: "R03_DUPLICATE_EMAIL", severity: "ERROR",
-            message: "Duplicate email address: '" + email + "'",
-            original_value: email, corrected_value: null
-          });
-        } else {
-          seenEmails.add(emailLower);
-        }
-      }
+      // R03 duplicate email is handled in the second pass below
     }
 
     // Rule 4: Missing both names
@@ -1069,196 +1063,239 @@ function validateRecords(rows) {
       }
     }
 
-    // =====================================================================
-    // WARNING RULES (16-28)
-    // =====================================================================
-    const warningIssues = [];
-
-    // Rule 16: Missing first_name (but last_name exists)
-    if (!data.first_name && data.last_name) {
-      warningIssues.push({
-        row_number: rowNum, customer_id: data.customer_id,
-        field: "first_name", rule_id: "R16_MISSING_FIRST_NAME", severity: "WARNING",
-        message: "Missing first name",
-        original_value: null, corrected_value: null
-      });
+    // Store per-row results for second pass
+    rowData.push(data);
+    rowCleanIssues.push(issues);
+    rowErrorIssues.push(errorIssues);
+    if (errorIssues.length > 0) {
+      errorRowIndices.add(idx);
     }
+  });
 
-    // Rule 17: Missing last_name (but first_name exists)
-    if (!data.last_name && data.first_name) {
-      warningIssues.push({
-        row_number: rowNum, customer_id: data.customer_id,
-        field: "last_name", rule_id: "R17_MISSING_LAST_NAME", severity: "WARNING",
-        message: "Missing last name",
-        original_value: null, corrected_value: null
-      });
+  // ===================================================================
+  // SECOND PASS: R03 duplicate email among accepted rows only
+  // ===================================================================
+  const seenEmails = new Set();
+  for (let idx = 0; idx < rows.length; idx++) {
+    if (errorRowIndices.has(idx)) continue;
+    const data = rowData[idx];
+    const email = data.email;
+    if (email) {
+      const emailLower = email.toLowerCase();
+      if (seenEmails.has(emailLower)) {
+        const rowNum = idx + 2;
+        rowErrorIssues[idx].push({
+          row_number: rowNum, customer_id: data.customer_id,
+          field: "email", rule_id: "R03_DUPLICATE_EMAIL", severity: "ERROR",
+          message: "Duplicate email address: '" + email + "'",
+          original_value: email, corrected_value: null
+        });
+        errorRowIndices.add(idx);
+      } else {
+        seenEmails.add(emailLower);
+      }
     }
+  }
 
-    // Rule 18: Missing phone
-    if (!data.phone) {
-      warningIssues.push({
-        row_number: rowNum, customer_id: data.customer_id,
-        field: "phone", rule_id: "R18_MISSING_PHONE", severity: "WARNING",
-        message: "Missing phone number",
-        original_value: null, corrected_value: null
-      });
-    }
+  // ===================================================================
+  // THIRD PASS: warning rules only for non-error rows, then collect
+  // ===================================================================
+  for (let idx = 0; idx < rows.length; idx++) {
+    const rowNum = idx + 2;
+    const data = rowData[idx];
+    const issues = rowCleanIssues[idx];
+    const errorIssues = rowErrorIssues[idx];
+    const hasErrors = errorIssues.length > 0;
+    let warningIssues = [];
 
-    // Rule 19: Missing DOB
-    if (!data.date_of_birth) {
-      warningIssues.push({
-        row_number: rowNum, customer_id: data.customer_id,
-        field: "date_of_birth", rule_id: "R19_MISSING_DOB", severity: "WARNING",
-        message: "Missing date of birth",
-        original_value: null, corrected_value: null
-      });
-    }
+    // Only run warning rules if no errors
+    if (!hasErrors) {
+      const spend = parseFloat2(data.total_spend);
+      const orders = parseInt2(data.num_orders);
 
-    // Rule 20: Missing loyalty_tier
-    if (!data.loyalty_tier) {
-      warningIssues.push({
-        row_number: rowNum, customer_id: data.customer_id,
-        field: "loyalty_tier", rule_id: "R20_MISSING_LOYALTY_TIER", severity: "WARNING",
-        message: "Missing loyalty tier",
-        original_value: null, corrected_value: null
-      });
-    }
-
-    // Rule 21: Missing preferred_contact
-    if (!data.preferred_contact) {
-      warningIssues.push({
-        row_number: rowNum, customer_id: data.customer_id,
-        field: "preferred_contact", rule_id: "R21_MISSING_PREFERRED_CONTACT", severity: "WARNING",
-        message: "Missing preferred contact method",
-        original_value: null, corrected_value: null
-      });
-    }
-
-    // Rule 22: Name contains digits or special characters
-    ["first_name", "last_name"].forEach(function(nameField) {
-      const nameVal = data[nameField];
-      if (nameVal && NAME_SUSPICIOUS_CHARS.test(nameVal)) {
+      // Rule 16: Missing first_name (but last_name exists)
+      if (!data.first_name && data.last_name) {
         warningIssues.push({
           row_number: rowNum, customer_id: data.customer_id,
-          field: nameField, rule_id: "R22_NAME_SUSPICIOUS_CHARS", severity: "WARNING",
-          message: nameField + " contains digits or special characters: '" + nameVal + "'",
-          original_value: nameVal, corrected_value: null
+          field: "first_name", rule_id: "R16_MISSING_FIRST_NAME", severity: "WARNING",
+          message: "Missing first name",
+          original_value: null, corrected_value: null
         });
       }
-    });
 
-    // Rule 23: Single-character name
-    ["first_name", "last_name"].forEach(function(nameField) {
-      const nameVal = data[nameField];
-      if (nameVal && nameVal.trim().length === 1) {
+      // Rule 17: Missing last_name (but first_name exists)
+      if (!data.last_name && data.first_name) {
         warningIssues.push({
           row_number: rowNum, customer_id: data.customer_id,
-          field: nameField, rule_id: "R23_SINGLE_CHAR_NAME", severity: "WARNING",
-          message: nameField + " is a single character: '" + nameVal + "'",
-          original_value: nameVal, corrected_value: null
+          field: "last_name", rule_id: "R17_MISSING_LAST_NAME", severity: "WARNING",
+          message: "Missing last name",
+          original_value: null, corrected_value: null
         });
       }
-    });
 
-    // Rule 24: City contains digits
-    const cityVal = data.city;
-    if (cityVal && CITY_HAS_DIGITS.test(cityVal)) {
-      warningIssues.push({
-        row_number: rowNum, customer_id: data.customer_id,
-        field: "city", rule_id: "R24_CITY_HAS_DIGITS", severity: "WARNING",
-        message: "City contains digits: '" + cityVal + "'",
-        original_value: cityVal, corrected_value: null
-      });
-    }
+      // Rule 18: Missing phone
+      if (!data.phone) {
+        warningIssues.push({
+          row_number: rowNum, customer_id: data.customer_id,
+          field: "phone", rule_id: "R18_MISSING_PHONE", severity: "WARNING",
+          message: "Missing phone number",
+          original_value: null, corrected_value: null
+        });
+      }
 
-    // Rule 25: Tier-spend mismatch
-    const tierVal = data.loyalty_tier;
-    if (tierVal && spend !== null) {
-      const thresholds = TIER_SPEND_THRESHOLDS[tierVal];
-      if (thresholds) {
-        if (thresholds.max_below !== undefined && spend < thresholds.max_below) {
+      // Rule 19: Missing DOB
+      if (!data.date_of_birth) {
+        warningIssues.push({
+          row_number: rowNum, customer_id: data.customer_id,
+          field: "date_of_birth", rule_id: "R19_MISSING_DOB", severity: "WARNING",
+          message: "Missing date of birth",
+          original_value: null, corrected_value: null
+        });
+      }
+
+      // Rule 20: Missing loyalty_tier
+      if (!data.loyalty_tier) {
+        warningIssues.push({
+          row_number: rowNum, customer_id: data.customer_id,
+          field: "loyalty_tier", rule_id: "R20_MISSING_LOYALTY_TIER", severity: "WARNING",
+          message: "Missing loyalty tier",
+          original_value: null, corrected_value: null
+        });
+      }
+
+      // Rule 21: Missing preferred_contact
+      if (!data.preferred_contact) {
+        warningIssues.push({
+          row_number: rowNum, customer_id: data.customer_id,
+          field: "preferred_contact", rule_id: "R21_MISSING_PREFERRED_CONTACT", severity: "WARNING",
+          message: "Missing preferred contact method",
+          original_value: null, corrected_value: null
+        });
+      }
+
+      // Rule 22: Name contains digits or special characters
+      ["first_name", "last_name"].forEach(function(nameField) {
+        const nameVal = data[nameField];
+        if (nameVal && NAME_SUSPICIOUS_CHARS.test(nameVal)) {
           warningIssues.push({
             row_number: rowNum, customer_id: data.customer_id,
-            field: "loyalty_tier,total_spend", rule_id: "R25_TIER_SPEND_MISMATCH", severity: "WARNING",
-            message: tierVal + " tier with only $" + spend.toFixed(2) + " total spend",
-            original_value: "tier=" + tierVal + ", spend=" + spend, corrected_value: null
+            field: nameField, rule_id: "R22_NAME_SUSPICIOUS_CHARS", severity: "WARNING",
+            message: nameField + " contains digits or special characters: '" + nameVal + "'",
+            original_value: nameVal, corrected_value: null
           });
         }
-        if (thresholds.min_above !== undefined && spend > thresholds.min_above) {
+      });
+
+      // Rule 23: Single-character name
+      ["first_name", "last_name"].forEach(function(nameField) {
+        const nameVal = data[nameField];
+        if (nameVal && nameVal.trim().length === 1) {
           warningIssues.push({
             row_number: rowNum, customer_id: data.customer_id,
-            field: "loyalty_tier,total_spend", rule_id: "R25_TIER_SPEND_MISMATCH", severity: "WARNING",
-            message: tierVal + " tier with $" + spend.toFixed(2) + " total spend (high for tier)",
-            original_value: "tier=" + tierVal + ", spend=" + spend, corrected_value: null
+            field: nameField, rule_id: "R23_SINGLE_CHAR_NAME", severity: "WARNING",
+            message: nameField + " is a single character: '" + nameVal + "'",
+            original_value: nameVal, corrected_value: null
           });
         }
-      }
-    }
+      });
 
-    // Rule 26: AOV outlier
-    if (spend !== null && orders !== null && orders > 0) {
-      const aov = spend / orders;
-      if (aov > AOV_OUTLIER_MAX) {
+      // Rule 24: City contains digits
+      const cityVal = data.city;
+      if (cityVal && CITY_HAS_DIGITS.test(cityVal)) {
         warningIssues.push({
           row_number: rowNum, customer_id: data.customer_id,
-          field: "total_spend,num_orders", rule_id: "R26_AOV_OUTLIER", severity: "WARNING",
-          message: "Average order value outlier: $" + aov.toFixed(2) + " (spend=" + spend + ", orders=" + orders + ")",
-          original_value: "aov=" + aov.toFixed(2), corrected_value: null
-        });
-      } else if (aov < AOV_OUTLIER_MIN) {
-        warningIssues.push({
-          row_number: rowNum, customer_id: data.customer_id,
-          field: "total_spend,num_orders", rule_id: "R26_AOV_OUTLIER", severity: "WARNING",
-          message: "Average order value outlier: $" + aov.toFixed(2) + " (spend=" + spend + ", orders=" + orders + ")",
-          original_value: "aov=" + aov.toFixed(2), corrected_value: null
+          field: "city", rule_id: "R24_CITY_HAS_DIGITS", severity: "WARNING",
+          message: "City contains digits: '" + cityVal + "'",
+          original_value: cityVal, corrected_value: null
         });
       }
-    }
 
-    // Rule 27: Phone missing area code
-    const phoneVal = data.phone;
-    if (phoneVal) {
-      const phoneDigits = phoneVal.replace(/\D/g, "");
-      if (PHONE_7_DIGITS_PATTERN.test(phoneDigits)) {
-        warningIssues.push({
-          row_number: rowNum, customer_id: data.customer_id,
-          field: "phone", rule_id: "R27_PHONE_MISSING_AREA_CODE", severity: "WARNING",
-          message: "Phone number appears to be missing area code (7 digits): '" + phoneVal + "'",
-          original_value: phoneVal, corrected_value: null
-        });
-      }
-    }
-
-    // Rule 28: Fuzzy duplicate
-    const lastName = data.last_name;
-    const zipCode = data.zip_code;
-    const emailAddr = data.email;
-    if (lastName && zipCode && emailAddr) {
-      const fuzzyKey = lastName.toLowerCase().trim() + "|" + zipCode.trim();
-      if (fuzzyDupes[fuzzyKey]) {
-        const existing = fuzzyDupes[fuzzyKey];
-        let warned = false;
-        for (let i = 0; i < existing.length; i++) {
-          if (existing[i].email.toLowerCase() !== emailAddr.toLowerCase()) {
+      // Rule 25: Tier-spend mismatch
+      const tierVal = data.loyalty_tier;
+      if (tierVal && spend !== null) {
+        const thresholds = TIER_SPEND_THRESHOLDS[tierVal];
+        if (thresholds) {
+          if (thresholds.max_below !== undefined && spend < thresholds.max_below) {
             warningIssues.push({
               row_number: rowNum, customer_id: data.customer_id,
-              field: "last_name,zip_code,email", rule_id: "R28_FUZZY_DUPLICATE", severity: "WARNING",
-              message: "Potential duplicate: same last name '" + lastName + "' and zip '" + zipCode + "' as row " + existing[i].row + " but different email",
-              original_value: emailAddr, corrected_value: null
+              field: "loyalty_tier,total_spend", rule_id: "R25_TIER_SPEND_MISMATCH", severity: "WARNING",
+              message: tierVal + " tier with only $" + spend.toFixed(2) + " total spend",
+              original_value: "tier=" + tierVal + ", spend=" + spend, corrected_value: null
             });
-            warned = true;
-            break;
+          }
+          if (thresholds.min_above !== undefined && spend > thresholds.min_above) {
+            warningIssues.push({
+              row_number: rowNum, customer_id: data.customer_id,
+              field: "loyalty_tier,total_spend", rule_id: "R25_TIER_SPEND_MISMATCH", severity: "WARNING",
+              message: tierVal + " tier with $" + spend.toFixed(2) + " total spend (high for tier)",
+              original_value: "tier=" + tierVal + ", spend=" + spend, corrected_value: null
+            });
           }
         }
-        fuzzyDupes[fuzzyKey].push({ email: emailAddr, row: rowNum });
-      } else {
-        fuzzyDupes[fuzzyKey] = [{ email: emailAddr, row: rowNum }];
+      }
+
+      // Rule 26: AOV outlier
+      if (spend !== null && orders !== null && orders > 0) {
+        const aov = spend / orders;
+        if (aov > AOV_OUTLIER_MAX) {
+          warningIssues.push({
+            row_number: rowNum, customer_id: data.customer_id,
+            field: "total_spend,num_orders", rule_id: "R26_AOV_OUTLIER", severity: "WARNING",
+            message: "Average order value outlier: $" + aov.toFixed(2) + " (spend=" + spend + ", orders=" + orders + ")",
+            original_value: "aov=" + aov.toFixed(2), corrected_value: null
+          });
+        } else if (aov < AOV_OUTLIER_MIN) {
+          warningIssues.push({
+            row_number: rowNum, customer_id: data.customer_id,
+            field: "total_spend,num_orders", rule_id: "R26_AOV_OUTLIER", severity: "WARNING",
+            message: "Average order value outlier: $" + aov.toFixed(2) + " (spend=" + spend + ", orders=" + orders + ")",
+            original_value: "aov=" + aov.toFixed(2), corrected_value: null
+          });
+        }
+      }
+
+      // Rule 27: Phone missing area code
+      const phoneVal = data.phone;
+      if (phoneVal) {
+        const phoneDigits = phoneVal.replace(/\D/g, "");
+        if (PHONE_7_DIGITS_PATTERN.test(phoneDigits)) {
+          warningIssues.push({
+            row_number: rowNum, customer_id: data.customer_id,
+            field: "phone", rule_id: "R27_PHONE_MISSING_AREA_CODE", severity: "WARNING",
+            message: "Phone number appears to be missing area code (7 digits): '" + phoneVal + "'",
+            original_value: phoneVal, corrected_value: null
+          });
+        }
+      }
+
+      // Rule 28: Fuzzy duplicate
+      const lastName = data.last_name;
+      const zipCode = data.zip_code;
+      const emailAddr = data.email;
+      if (lastName && zipCode && emailAddr) {
+        const fuzzyKey = lastName.toLowerCase().trim() + "|" + zipCode.trim();
+        if (fuzzyDupes[fuzzyKey]) {
+          const existing = fuzzyDupes[fuzzyKey];
+          for (let i = 0; i < existing.length; i++) {
+            if (existing[i].email.toLowerCase() !== emailAddr.toLowerCase()) {
+              warningIssues.push({
+                row_number: rowNum, customer_id: data.customer_id,
+                field: "last_name,zip_code,email", rule_id: "R28_FUZZY_DUPLICATE", severity: "WARNING",
+                message: "Potential duplicate: same last name '" + lastName + "' and zip '" + zipCode + "' as row " + existing[i].row + " but different email",
+                original_value: emailAddr, corrected_value: null
+              });
+              break;
+            }
+          }
+          fuzzyDupes[fuzzyKey].push({ email: emailAddr, row: rowNum });
+        } else {
+          fuzzyDupes[fuzzyKey] = [{ email: emailAddr, row: rowNum }];
+        }
       }
     }
 
-    // Combine all issues
+    // Combine all issues for this row
     const allRowIssues = issues.concat(errorIssues, warningIssues);
-    const hasErrors = errorIssues.length > 0;
 
     if (hasErrors) {
       rejectedCount++;
@@ -1277,7 +1314,7 @@ function validateRecords(rows) {
     });
 
     allIssues.push.apply(allIssues, allRowIssues);
-  });
+  }
 
   // Count records with warnings that are NOT also rejected
   warningRecordCount = 0;

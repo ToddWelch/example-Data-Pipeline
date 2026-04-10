@@ -2,9 +2,9 @@
 
 ## Overview
 
-A production-grade data pipeline that ingests a messy 500-row customer CSV, validates it against 35 rules across three severity levels (ERROR, WARNING, CLEANED), and outputs a clean SQLite database alongside a detailed validation report. Built as Task 2 of the Schneider Saddlery Head of Technology technical assessment, this pipeline demonstrates the kind of data quality engineering required when syncing customer records between Shopify, Fulfil.io, and third-party data sources.
+A production-grade data pipeline that ingests a messy 500-row customer CSV, validates it against 36 rules across three severity levels (ERROR, WARNING, CLEANED), and outputs a clean SQLite database alongside a detailed validation report. Built as Task 2 of the Schneider Saddlery Head of Technology technical assessment, this pipeline demonstrates the kind of data quality engineering required when syncing customer records between Shopify, Fulfil.io, and third-party data sources.
 
-The pipeline processed 500 input records, loaded 367 clean records into SQLite, rejected 133 records with errors, flagged 79 records with warnings, and auto-cleaned 841 field values.
+The pipeline processed 500 input records, loaded 372 clean records into SQLite, rejected 128 records with errors, flagged 79 records with warnings, and auto-cleaned 179 field values.
 
 ---
 
@@ -77,8 +77,8 @@ CSV File
 
 | Module | File | Responsibility |
 |--------|------|----------------|
-| **Loader** | `src/loader.py` | Reads CSV with encoding detection, strips whitespace, normalizes empty values. Produces raw record dicts. |
-| **Validators** | `src/validators.py` | Applies all 35 validation rules organized by severity. Returns a list of ValidationIssue objects per record. |
+| **Loader** | `src/loader.py` | Reads CSV with UTF-8 encoding, strips whitespace, normalizes empty values. Produces raw record dicts. |
+| **Validators** | `src/validators.py` | Applies all 36 validation rules organized by severity. Returns a list of ValidationIssue objects per record. |
 | **Transformer** | `src/transformer.py` | Performs auto-cleaning: state normalization, phone formatting, date standardization, tier casing, boolean normalization, and sentinel removal. Logs every change. |
 | **Writer** | `src/writer.py` | Creates SQLite schema (DROP/recreate for idempotency), inserts clean records, logs pipeline run metadata and all validation issues. |
 | **Report** | `src/report.py` | Generates the JSON validation report consumed by the HTML viewer. |
@@ -104,13 +104,13 @@ This mirrors how platforms like Fulfil.io handle data imports: records are accep
 
 The brief asked for a validation report. A JSON file satisfies the requirement. But the people who actually use data quality reports are operations managers and merchandisers, not engineers. They need to filter by severity, search for specific customers, print a summary for a meeting, or export issues to a spreadsheet for assignment.
 
-The standalone HTML report (no server, no install, double-click to open) serves this audience. It also demonstrates that the validation logic is portable: the same 35 rules run in both Python (for pipeline automation) and JavaScript (for ad-hoc analysis by non-technical users). If a new CSV arrives and someone wants a quick quality check before running the full pipeline, they drop it on the HTML page and get results in seconds.
+The standalone HTML report (no server, no install, double-click to open) serves this audience. It also demonstrates that the validation logic is portable: the same 36 rules run in both Python (for pipeline automation) and JavaScript (for ad-hoc analysis by non-technical users). If a new CSV arrives and someone wants a quick quality check before running the full pipeline, they drop it on the HTML page and get results in seconds.
 
 ---
 
 ## Validation Rules
 
-All 35 rules organized by severity level:
+All 36 rules organized by severity level:
 
 ### ERROR Rules (record rejected, not loaded into SQLite)
 
@@ -161,26 +161,27 @@ All 35 rules organized by severity level:
 | 33 | R33_NEWSLETTER_NORMALIZE | Newsletter opt-in normalized to boolean (e.g., "yes"/"Y"/"1"/"TRUE" to True) |
 | 34 | R34_DATE_NORMALIZE | Date format converted to ISO 8601 YYYY-MM-DD (from MM/DD/YYYY, MM-DD-YYYY, M/DD/YY) |
 | 35 | R35_NULL_SENTINEL | "N/A" sentinel values converted to NULL |
+| 36 | R36_DUPLICATE_CUSTOMER_ID | Duplicate customer ID disambiguated by appending row number suffix |
 
 ### Pipeline Run Results (from `data/customers.csv`)
 
 | Metric | Count |
 |--------|-------|
 | Total input records | 500 |
-| Clean records loaded to SQLite | 367 |
-| Rejected records (ERROR) | 133 |
+| Clean records loaded to SQLite | 372 |
+| Rejected records (ERROR) | 128 |
 | Records with warnings | 79 |
-| Auto-cleaned field values | 841 |
+| Auto-cleaned field values | 179 |
 
 ---
 
 ## HTML Validation Report
 
-The standalone HTML report (`report/index.html`) duplicates all 35 validation rules in JavaScript, enabling client-side processing of any CSV with matching column names. No data leaves the user's machine.
+The standalone HTML report (`report/index.html`) duplicates all 36 validation rules in JavaScript, enabling client-side processing of any CSV with matching column names. CSV data is processed entirely in the browser. Tailwind CSS and PapaParse are loaded from CDN, requiring internet access.
 
 ### Upload and Processing
 
-Drag and drop a CSV onto the upload zone (or use the file picker). PapaParse handles CSV parsing client-side. All 35 rules execute in JavaScript with the same logic, thresholds, and edge case handling as the Python pipeline. The report works by double-clicking the file from a file explorer. No server, no build step, no installation.
+Drag and drop a CSV onto the upload zone (or use the file picker). PapaParse handles CSV parsing client-side. All 36 rules execute in JavaScript with the same logic, thresholds, and edge case handling as the Python pipeline. The report works by double-clicking the file from a file explorer. No server, no build step, no installation.
 
 ### Dashboard and Filtering
 
@@ -289,7 +290,7 @@ Before executing this pipeline against a production system, run these checks:
 
 2. **Dry run against staging/sandbox.** Run `python pipeline.py data/customers.csv --dry-run` to validate without writing. Then run against a Shopify development store or Fulfil.io sandbox to verify API interactions.
 
-3. **Row count reconciliation.** Verify that input records (500) equals clean records (367) plus rejected records (133). No records should be silently dropped. The pipeline enforces this: every record lands in either the clean output or the rejection report.
+3. **Row count reconciliation.** Verify that input records (500) equals clean records (372) plus rejected records (128). No records should be silently dropped. The pipeline enforces this: every record lands in either the clean output or the rejection report.
 
 4. **Spot check sample of cleaned records.** Pull 10-20 cleaned records from SQLite and manually compare against the original CSV. Verify that state normalization, phone formatting, and date conversion produced correct results.
 
@@ -372,7 +373,7 @@ Compare pipeline output against known issue counts from data profiling:
 |-------------|----------|--------|
 | Missing email | ~33 | 33 rejected (R01) |
 | Invalid email format | ~5 | 26 rejected (R02, includes additional format violations) |
-| Duplicate email | ~19 | 17 rejected (R03, after earlier rejections reduce the pool) |
+| Duplicate email | ~19 | 11 rejected (R03, two-pass dedup among accepted rows only) |
 | Last order before signup | ~41 | 41 rejected (R11) |
 | Negative spend sentinel | ~8 | 8 rejected (R08) |
 | Future birth dates | ~8 | 8 rejected (R05) |
@@ -392,7 +393,7 @@ FROM customers;
 
 -- Check for suspicious gaps in customer_id sequence
 SELECT COUNT(DISTINCT customer_id) as unique_ids FROM customers;
--- Should equal 367 (clean record count)
+-- Should equal 372 (clean record count)
 ```
 
 ---
@@ -401,7 +402,7 @@ SELECT COUNT(DISTINCT customer_id) as unique_ids FROM customers;
 
 ### Claude (claude.ai, Specification and Strategy)
 
-Used as a strategic planning partner before any code was written. The project specification (TASK2_SPEC.md) was developed collaboratively in Claude.ai, including: analyzing the CSV to inventory all data quality issues across 500 rows and 17 columns, designing the 35 validation rules with severity tiers and edge case handling, defining the SQLite schema with audit trail tables, planning the modular project structure, and writing detailed acceptance criteria for the HTML report.
+Used as a strategic planning partner before any code was written. The project specification (TASK2_SPEC.md) was developed collaboratively in Claude.ai, including: analyzing the CSV to inventory all data quality issues across 500 rows and 17 columns, designing the 36 validation rules with severity tiers and edge case handling, defining the SQLite schema with audit trail tables, planning the modular project structure, and writing detailed acceptance criteria for the HTML report.
 
 Claude.ai also produced iterative spec patches (TASK2_SPEC_PATCH_001 through PATCH_003) to refine the HTML report based on testing. These addressed: collapsing CLEANED entries per record to reduce noise, adding severity filter checkboxes with CLEANED unchecked by default, fixing the print stylesheet to render all filtered rows across correct page breaks, and preventing column wrapping on rule IDs and row numbers.
 
@@ -417,7 +418,7 @@ The orchestrator (Claude Code) relayed tasks between agents following a strict f
 
 ### OpenAI Codex (Independent Code Review)
 
-After the build was complete, the entire repository was submitted to OpenAI Codex for an independent third-party code review. Codex received a detailed review prompt covering all 35 validation rules, edge case specifications, idempotency requirements, security concerns (SQL injection, XSS in the HTML report), and the em dash style constraint. Codex evaluated correctness, security, code quality, testing coverage, and production readiness. Findings were triaged and fixed before submission.
+After the build was complete, the entire repository was submitted to OpenAI Codex for an independent third-party code review. Codex received a detailed review prompt covering all 36 validation rules, edge case specifications, idempotency requirements, security concerns (SQL injection, XSS in the HTML report), and the em dash style constraint. Codex evaluated correctness, security, code quality, testing coverage, and production readiness. Findings were triaged and fixed before submission.
 
 ### What AI Did Not Do
 

@@ -1,14 +1,16 @@
 """
 Validation rules for the customer data pipeline.
 
-35 rules organized by severity:
+36 rules organized by severity:
 - ERROR (rules 1-15): Record rejected, not loaded to SQLite
 - WARNING (rules 16-28): Record loads but flagged in report
-- CLEANED (rules 29-35): Auto-corrected, original value logged
+- CLEANED (rules 29-36): Auto-corrected, original value logged
 
 The validate function runs cleaning rules FIRST (to normalize data),
-then error rules, then warning rules. This way error checks run
-on cleaned data.
+then error rules (excluding R03 duplicate email, which is handled as
+a second pass in pipeline.py among accepted rows only), then warning
+rules (only if no errors). This way error checks run on cleaned data,
+and warnings do not fire on rejected records.
 """
 
 import re
@@ -44,8 +46,6 @@ from src.constants import (
 from src.models import RawCustomerRecord, ValidationIssue, Severity
 
 
-# Today's date for age and future-date checks
-TODAY = date(2026, 4, 10)
 
 
 # ---------------------------------------------------------------------------
@@ -402,22 +402,25 @@ def run_cleaning_rules(
 def run_error_rules(
     record: RawCustomerRecord,
     run_id: str,
-    seen_emails: set[str],
-    today: date = TODAY,
+    today: date = None,
 ) -> list[ValidationIssue]:
     """
     Run all ERROR-severity validation rules on a cleaned record.
 
+    Duplicate email detection (R03) is NOT handled here. It is performed
+    as a second pass in pipeline.py so that only rows accepted by all
+    other error rules participate in the duplicate check.
+
     Args:
         record: The cleaned RawCustomerRecord.
         run_id: The pipeline run ID.
-        seen_emails: Set of already-seen email addresses (lowercase).
-                     This function will add the current email if it passes.
-        today: Today's date for future-date checks.
+        today: Reference date for future-date checks. Defaults to today.
 
     Returns:
         List of ERROR-severity ValidationIssue objects.
     """
+    if today is None:
+        today = date.today()
     issues: list[ValidationIssue] = []
     data = record.model_dump()
 
@@ -500,21 +503,8 @@ def run_error_rules(
             ))
             email_invalid = True
 
-        # Rule 3: Duplicate email (keep first, reject subsequent)
-        if not email_invalid:
-            if email_lower in seen_emails:
-                issues.append(ValidationIssue(
-                    run_id=run_id,
-                    customer_id=data.get("customer_id"),
-                    row_number=data["row_number"],
-                    field="email",
-                    rule_id="R03_DUPLICATE_EMAIL",
-                    severity=Severity.ERROR,
-                    message=f"Duplicate email address: '{email}'",
-                    original_value=email,
-                ))
-            else:
-                seen_emails.add(email_lower)
+        # Rule 3: Duplicate email detection is handled in pipeline.py
+        # as a second pass among accepted rows only.
 
     # Rule 4: Missing both first_name AND last_name
     if not data.get("first_name") and not data.get("last_name"):
@@ -952,23 +942,28 @@ def validate_record(
     record: RawCustomerRecord,
     run_id: str,
     row_meta: dict,
-    seen_emails: set[str],
     fuzzy_dupes: dict[str, list[tuple[str, int]]],
+    today: date = None,
 ) -> tuple[RawCustomerRecord, list[ValidationIssue], bool]:
     """
     Run all validation rules on a single record.
 
     Execution order:
     1. CLEANED rules (normalize data)
-    2. ERROR rules (reject bad records)
-    3. WARNING rules (flag concerns on valid records)
+    2. ERROR rules (reject bad records), excluding R03 duplicate email
+    3. WARNING rules (flag concerns on valid records), only if no errors
+
+    Duplicate email detection (R03) is handled separately in pipeline.py
+    as a second pass among accepted rows only. This prevents a row that
+    fails for another reason (e.g., future DOB) from "reserving" its
+    email and incorrectly rejecting a later clean row.
 
     Args:
         record: The raw customer record.
         run_id: The pipeline run ID.
         row_meta: Metadata from the loader about whitespace/null sentinels.
-        seen_emails: Shared set of seen email addresses for dupe detection.
         fuzzy_dupes: Shared dict for fuzzy duplicate detection.
+        today: Reference date for future-date checks. Defaults to today.
 
     Returns:
         Tuple of (cleaned_record, all_issues, has_errors).
@@ -976,12 +971,14 @@ def validate_record(
     # Step 1: Run cleaning rules (normalizes the record in-place)
     cleaned_record, clean_issues = run_cleaning_rules(record, run_id, row_meta)
 
-    # Step 2: Run error rules on cleaned data
-    error_issues = run_error_rules(cleaned_record, run_id, seen_emails)
+    # Step 2: Run error rules on cleaned data (R03 excluded, handled in pipeline.py)
+    error_issues = run_error_rules(cleaned_record, run_id, today=today)
 
-    # Step 3: Run warning rules on cleaned data (only if no errors,
-    # but we still run them for reporting purposes)
-    warning_issues = run_warning_rules(cleaned_record, run_id, fuzzy_dupes)
+    # Step 3: Run warning rules ONLY if no errors
+    if not error_issues:
+        warning_issues = run_warning_rules(cleaned_record, run_id, fuzzy_dupes)
+    else:
+        warning_issues = []
 
     all_issues = clean_issues + error_issues + warning_issues
     has_errors = len(error_issues) > 0

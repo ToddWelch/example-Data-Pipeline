@@ -13,14 +13,14 @@ import hashlib
 import os
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 
 from src.loader import load_csv
 from src.validators import validate_record
 from src.transformer import transform_record
 from src.writer import write_database
 from src.report import generate_report
-from src.models import PipelineRun, Severity
+from src.models import PipelineRun, Severity, ValidationIssue
 
 
 def compute_file_hash(file_path: str) -> str:
@@ -48,6 +48,7 @@ def run_pipeline(
     report_path: str,
     dry_run: bool = False,
     verbose: bool = False,
+    reference_date: date = None,
 ) -> dict:
     """
     Execute the full pipeline: load, validate, transform, write, report.
@@ -88,29 +89,83 @@ def run_pipeline(
     if verbose:
         print("Validating and transforming records...")
 
-    clean_customers = []
+    # First pass: run all rules EXCEPT R03 (duplicate email)
     all_issues = []
-    seen_emails: set[str] = set()
-    seen_customer_ids: set[str] = set()
+    cleaned_records = []
+    issues_by_row: list[list] = []
+    error_row_indices: set[int] = set()
     fuzzy_dupes: dict[str, list[tuple[str, int]]] = {}
-    warning_record_ids: set[int] = set()
 
     for i, (record, meta) in enumerate(zip(records, row_metadata)):
         cleaned_record, issues, has_errors = validate_record(
             record=record,
             run_id=run_id,
             row_meta=meta,
-            seen_emails=seen_emails,
             fuzzy_dupes=fuzzy_dupes,
+            today=reference_date,
         )
+        cleaned_records.append(cleaned_record)
+        issues_by_row.append(issues)
+
+        if has_errors:
+            error_row_indices.add(i)
+
+        if verbose and (i + 1) % 100 == 0:
+            print(f"  Processed {i + 1}/{total_records} records...")
+
+    # Second pass: duplicate email detection among accepted rows only
+    seen_emails: set[str] = set()
+    for i, cleaned_record in enumerate(cleaned_records):
+        if i in error_row_indices:
+            continue
+        email = cleaned_record.email
+        if email:
+            email_lower = email.lower()
+            if email_lower in seen_emails:
+                dup_issue = ValidationIssue(
+                    run_id=run_id,
+                    customer_id=cleaned_record.customer_id,
+                    row_number=cleaned_record.row_number,
+                    field="email",
+                    rule_id="R03_DUPLICATE_EMAIL",
+                    severity=Severity.ERROR,
+                    message=f"Duplicate email address: '{email}'",
+                    original_value=email,
+                )
+                issues_by_row[i].append(dup_issue)
+                error_row_indices.add(i)
+            else:
+                seen_emails.add(email_lower)
+
+    # Collect all issues and build clean customer list
+    clean_customers = []
+    seen_customer_ids: set[str] = set()
+    warning_record_ids: set[int] = set()
+
+    for i, (record, cleaned_record) in enumerate(zip(records, cleaned_records)):
+        issues = issues_by_row[i]
         all_issues.extend(issues)
 
-        if not has_errors:
+        if i not in error_row_indices:
             customer = transform_record(cleaned_record, issues)
             if customer is not None:
                 # Disambiguate duplicate customer_ids by appending row number
                 if customer.customer_id in seen_customer_ids:
-                    customer.customer_id = f"{customer.customer_id}-R{record.row_number}"
+                    original_id = customer.customer_id
+                    new_id = f"{customer.customer_id}-R{record.row_number}"
+                    customer.customer_id = new_id
+                    # Fix 2: Log a CLEANED issue for the rename
+                    all_issues.append(ValidationIssue(
+                        run_id=run_id,
+                        customer_id=new_id,
+                        row_number=record.row_number,
+                        field="customer_id",
+                        rule_id="R36_DUPLICATE_CUSTOMER_ID",
+                        severity=Severity.CLEANED,
+                        message=f"Duplicate customer ID renamed from '{original_id}' to '{new_id}'",
+                        original_value=original_id,
+                        corrected_value=new_id,
+                    ))
                 seen_customer_ids.add(customer.customer_id)
                 clean_customers.append(customer)
                 # Track if this clean record has warnings
@@ -119,9 +174,6 @@ def run_pipeline(
                 )
                 if has_warnings:
                     warning_record_ids.add(record.row_number)
-
-        if verbose and (i + 1) % 100 == 0:
-            print(f"  Processed {i + 1}/{total_records} records...")
 
     # Compute stats
     clean_count = len(clean_customers)
@@ -235,6 +287,11 @@ def main():
         action="store_true",
         help="Print detailed progress information",
     )
+    parser.add_argument(
+        "--date",
+        default=None,
+        help="Reference date for age/future checks (YYYY-MM-DD). Defaults to today.",
+    )
 
     args = parser.parse_args()
 
@@ -243,12 +300,16 @@ def main():
         print(f"Error: Input file not found: {args.input_file}", file=sys.stderr)
         sys.exit(1)
 
+    # Parse reference date for age/future checks
+    reference_date = date.fromisoformat(args.date) if args.date else date.today()
+
     run_pipeline(
         input_file=args.input_file,
         output_db=args.output,
         report_path=args.report,
         dry_run=args.dry_run,
         verbose=args.verbose,
+        reference_date=reference_date,
     )
 
 

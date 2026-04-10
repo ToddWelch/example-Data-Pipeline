@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import tempfile
 import unittest
+from datetime import date
 
 
 class TestIdempotency(unittest.TestCase):
@@ -48,6 +49,7 @@ class TestIdempotency(unittest.TestCase):
             report_path=cls.report_path_1,
             dry_run=False,
             verbose=False,
+            reference_date=date(2026, 4, 10),
         )
 
         cls.result_2 = run_pipeline(
@@ -56,6 +58,7 @@ class TestIdempotency(unittest.TestCase):
             report_path=cls.report_path_2,
             dry_run=False,
             verbose=False,
+            reference_date=date(2026, 4, 10),
         )
 
         # Load reports
