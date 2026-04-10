@@ -210,7 +210,16 @@
     th:nth-child(7), td:nth-child(7) { width: 12%; }
 
     /* Repeat header on each printed page */
-    thead { display: table-header-group; }
+    thead { display: table-header-group !important; visibility: visible !important; }
+    thead th {
+      position: static !important;
+      background-color: #EEEEEE !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      color: #555555 !important;
+      font-size: 7pt;
+      padding: 4px 5px !important;
+    }
     tr { page-break-inside: avoid; }
 
     /* Ink-friendly badges */
