@@ -97,19 +97,116 @@
 
   /* Print stylesheet */
   @media print {
-    .no-print { display: none !important; }
+    /* Hide interactive elements */
+    .no-print,
+    button,
+    input[type="text"],
+    input[type="checkbox"],
+    input[type="file"],
+    select,
+    #upload-section,
+    .drop-zone,
+    #page-numbers,
+    #btn-prev,
+    #btn-next { display: none !important; }
+
     .print-only { display: block !important; }
-    body { font-size: 10pt; background: #FFFFFF !important; overflow-x: visible !important; }
-    .drop-zone { display: none !important; }
-    #upload-section { display: none !important; }
-    #results-section { break-inside: avoid; }
-    .table-container { max-height: none; overflow: visible; }
+
+    body {
+      font-size: 9pt;
+      background: #FFFFFF !important;
+      overflow-x: visible !important;
+      color: #1a1a1a;
+    }
+
+    /* Show the print header */
     header { display: none !important; }
-    #btn-prev, #btn-next, #page-numbers { display: none !important; }
-    .badge-error, .badge-warning, .badge-cleaned {
+
+    /* Print-only header repeats on each page */
+    .print-page-header {
+      display: block !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 8px 16px;
+      font-size: 8pt;
+      color: #555555;
+      border-bottom: 1px solid #D1D5DB;
+      background: #FFFFFF;
+      z-index: 9999;
+    }
+
+    /* Push content below fixed header */
+    #results-section { margin-top: 30px; }
+
+    /* Table fixes */
+    .table-container {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    table { width: 100%; font-size: 9pt; border-collapse: collapse; }
+    td, th {
+      padding: 3px 5px;
+      white-space: normal !important;
+      word-break: break-word;
+      max-width: none !important;
+      overflow: visible !important;
+      text-overflow: unset !important;
+    }
+
+    /* Print column widths */
+    th:nth-child(1), td:nth-child(1) { width: 5%; }
+    th:nth-child(2), td:nth-child(2) { width: 8%; }
+    th:nth-child(3), td:nth-child(3) { width: 15%; }
+    th:nth-child(4), td:nth-child(4) { width: 12%; }
+    th:nth-child(5), td:nth-child(5) { width: 35%; }
+    th:nth-child(6), td:nth-child(6) { width: 15%; }
+    th:nth-child(7), td:nth-child(7) { width: 10%; }
+
+    /* Repeat header on each printed page */
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+
+    /* Ink-friendly badges */
+    .badge-error {
+      border: 1px solid #CC0000 !important;
+      color: #CC0000 !important;
+      background: white !important;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    .badge-warning {
+      border: 1px solid #b45309 !important;
+      color: #b45309 !important;
+      background: white !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .badge-cleaned {
+      border: 1px solid #059669 !important;
+      color: #059669 !important;
+      background: white !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* Remove alternating row backgrounds */
+    #results-body tr.data-row { background-color: #FFFFFF !important; }
+
+    /* KPI strip: print-friendly, force colors */
+    .kpi-strip-outer {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      page-break-after: avoid;
+    }
+
+    /* Severity legend and filter context */
+    #filter-context-bar { display: none !important; }
+    .severity-legend { page-break-after: avoid; }
+
+    /* Detail rows visible if open */
+    .detail-row.open { display: table-row !important; }
   }
 </style>
 </head>
@@ -127,7 +224,7 @@
       </div>
       <div style="width: 300px;" class="flex-shrink-0 flex items-center justify-end gap-3">
         <span id="header-timestamp" class="text-sm hidden" style="color: #555555;"></span>
-        <button id="btn-print" onclick="window.print()"
+        <button id="btn-print" onclick="handlePrint()"
           class="hidden px-3 py-1.5 text-sm rounded border transition hover:bg-gray-50" style="border-color: #D1D5DB; color: #333333; background-color: #FFFFFF;">
           Print
         </button>
@@ -140,7 +237,12 @@
   </div>
 </header>
 
-<!-- Print header (only visible in print) -->
+<!-- Print header (repeats on each printed page via position:fixed) -->
+<div class="print-page-header" style="display: none;">
+  <span id="print-page-header-text">Customer Data Validation Report</span>
+</div>
+
+<!-- Print title block (only visible in print, first page) -->
 <div class="print-only hidden px-4 py-4 border-b-2 mb-4" style="border-color: #D1D5DB;">
   <h1 class="text-2xl font-bold" style="color: #333333;">Customer Data Validation Report</h1>
   <p class="text-sm" style="color: #555555;" id="print-timestamp"></p>
@@ -169,7 +271,7 @@
 <section id="results-section" class="hidden max-w-7xl mx-auto px-4 pb-12 sm:px-6 lg:px-8">
 
   <!-- Dashboard Cards (KPI Strip) -->
-  <div class="px-8 py-8" style="background-color: #002848; margin-left: -9999px; margin-right: -9999px; padding-left: 9999px; padding-right: 9999px;">
+  <div class="kpi-strip-outer px-8 py-8" style="background-color: #002848; margin-left: -9999px; margin-right: -9999px; padding-left: 9999px; padding-right: 9999px;">
     <div id="dashboard" class="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
       <div class="rounded-lg p-5 text-center" style="background-color: rgba(255,255,255,0.08);">
         <p class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: rgba(255,255,255,0.7);">Total Records</p>
@@ -1156,7 +1258,7 @@ let allIssuesDisplay = [];  // Collapsed CLEANED rows (for table display)
 let allIssues = [];         // Alias: points to allIssuesDisplay for filtering
 let filteredIssues = [];
 let currentPage = 0;
-const pageSize = 50;
+var pageSize = 50;
 let sortColumn = "row_number";
 let sortDirection = "asc";
 
@@ -1644,6 +1746,35 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+
+// =========================================================================
+// PRINT
+// =========================================================================
+
+function handlePrint() {
+  var savedPageSize = pageSize;
+  pageSize = 999999;
+  renderTable();
+
+  // Update the repeating print page header with file/date info
+  var ts = document.getElementById("print-timestamp");
+  var headerText = document.getElementById("print-page-header-text");
+  if (ts && headerText) {
+    headerText.textContent = "Customer Data Validation Report | " + ts.textContent;
+  }
+
+  setTimeout(function() {
+    window.print();
+  }, 150);
+
+  // Restore pagination after print dialog closes
+  window.onafterprint = function() {
+    pageSize = savedPageSize;
+    renderTable();
+    window.onafterprint = null;
+  };
 }
 
 
