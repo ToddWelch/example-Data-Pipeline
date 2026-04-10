@@ -12,16 +12,18 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans',
       'Helvetica Neue', sans-serif;
+    color: #333333;
   }
 
   /* Drag-and-drop zone */
   .drop-zone {
-    border: 2px dashed #94a3b8;
+    border: 2px dashed #D1D5DB;
     transition: all 0.2s ease;
+    background-color: #FFFFFF;
   }
   .drop-zone.drag-over {
-    border-color: #0d9488;
-    background-color: #f0fdfa;
+    border-color: #2D2D2D;
+    background-color: #F9FAFB;
   }
 
   /* Expandable row */
@@ -35,29 +37,69 @@
   /* Severity badges */
   .badge-error {
     background-color: #fef2f2;
-    color: #991b1b;
-    border: 1px solid #fecaca;
+    color: #CC0000;
+    border: 1px solid #CC0000;
   }
   .badge-warning {
     background-color: #fffbeb;
-    color: #92400e;
-    border: 1px solid #fde68a;
+    color: #D97706;
+    border: 1px solid #D97706;
   }
   .badge-cleaned {
     background-color: #f0fdf4;
-    color: #166534;
-    border: 1px solid #bbf7d0;
+    color: #059669;
+    border: 1px solid #059669;
   }
 
   /* Sort indicators */
   .sort-asc::after { content: ' \25B2'; font-size: 0.7em; }
   .sort-desc::after { content: ' \25BC'; font-size: 0.7em; }
 
+  /* Table container with fixed height and scroll */
+  .table-container {
+    max-height: 70vh;
+    overflow-x: auto;
+    overflow-y: auto;
+  }
+  .table-container thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #EEEEEE;
+  }
+
+  /* Alternating row colors */
+  #results-body tr.data-row:nth-child(4n+1) {
+    background-color: #FFFFFF;
+  }
+  #results-body tr.data-row:nth-child(4n+3) {
+    background-color: #F9FAFB;
+  }
+  #results-body tr.data-row:hover {
+    background-color: #f0f0f0;
+  }
+
+  /* Chevron indicator for expandable rows */
+  .chevron {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 6px solid #555555;
+    transition: transform 0.2s ease;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .chevron.open {
+    transform: rotate(90deg);
+  }
+
   /* Print stylesheet */
   @media print {
     .no-print { display: none !important; }
     .print-only { display: block !important; }
-    body { font-size: 10pt; }
+    body { font-size: 10pt; background: #FFFFFF !important; }
     .drop-zone { display: none !important; }
     #upload-section { display: none !important; }
     #results-section { break-inside: avoid; }
@@ -65,26 +107,32 @@
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    .table-container { max-height: none; overflow: visible; }
+    header, .no-print { display: none !important; }
+    * { background: #FFFFFF !important; color: #000000 !important; }
+    .badge-error, .badge-warning, .badge-cleaned {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
   }
 </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-white min-h-screen text-base">
 
 <!-- Header -->
-<header class="bg-slate-800 text-white shadow-lg no-print">
+<header class="text-white shadow-lg no-print" style="background-color: #2D2D2D;">
   <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-xl font-semibold tracking-tight">Customer Data Validation Report</h1>
-        <p class="text-slate-300 text-sm mt-0.5">Data Pipeline Quality Assurance Tool</p>
       </div>
       <div class="flex gap-3">
         <button id="btn-print" onclick="window.print()"
-          class="hidden px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded border border-slate-500 transition">
+          class="hidden px-3 py-1.5 text-sm rounded border border-gray-500 transition text-white hover:opacity-80" style="background-color: #2D2D2D;">
           Print Report
         </button>
         <button id="btn-export" onclick="exportCSV()"
-          class="hidden px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 rounded border border-teal-500 transition">
+          class="hidden px-3 py-1.5 text-sm rounded border border-gray-500 transition text-white hover:opacity-80" style="background-color: #2D2D2D;">
           Export CSV
         </button>
       </div>
@@ -93,63 +141,65 @@
 </header>
 
 <!-- Print header (only visible in print) -->
-<div class="print-only hidden px-4 py-4 border-b-2 border-slate-800 mb-4">
-  <h1 class="text-2xl font-bold">Customer Data Validation Report</h1>
-  <p class="text-sm text-gray-600" id="print-timestamp"></p>
+<div class="print-only hidden px-4 py-4 border-b-2 mb-4" style="border-color: #D1D5DB;">
+  <h1 class="text-2xl font-bold" style="color: #333333;">Customer Data Validation Report</h1>
+  <p class="text-sm" style="color: #555555;" id="print-timestamp"></p>
 </div>
 
 <!-- Upload Section -->
 <section id="upload-section" class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-  <div class="drop-zone rounded-lg p-12 text-center cursor-pointer bg-white shadow-sm"
+  <div class="drop-zone rounded-lg p-12 text-center cursor-pointer"
        id="drop-zone"
        onclick="document.getElementById('file-input').click()">
-    <svg class="mx-auto h-12 w-12 text-slate-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg class="mx-auto h-12 w-12 mb-4" style="color: #555555;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
             d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
     </svg>
-    <p class="text-lg font-medium text-slate-700">Drop a CSV file here, or click to browse</p>
-    <p class="text-sm text-slate-500 mt-1">Accepts any CSV with matching column headers</p>
+    <p class="text-lg font-medium" style="color: #333333;">Drop a CSV file here, or click to browse</p>
+    <p class="text-sm mt-1" style="color: #555555;">Accepts any CSV with matching column headers</p>
     <input type="file" id="file-input" accept=".csv" class="hidden">
   </div>
   <div id="loading-indicator" class="hidden text-center py-8">
-    <div class="inline-block h-8 w-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-    <p class="mt-2 text-slate-600 text-sm">Processing records...</p>
+    <div class="inline-block h-8 w-8 border-4 border-t-transparent rounded-full animate-spin" style="border-color: #2D2D2D; border-top-color: transparent;"></div>
+    <p class="mt-2 text-sm" style="color: #555555;">Processing records...</p>
   </div>
 </section>
 
 <!-- Results Section (hidden until CSV processed) -->
 <section id="results-section" class="hidden max-w-7xl mx-auto px-4 pb-12 sm:px-6 lg:px-8">
 
-  <!-- Dashboard Cards -->
-  <div id="dashboard" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-    <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4 text-center">
-      <p class="text-3xl font-bold text-slate-800" id="stat-total">0</p>
-      <p class="text-sm text-slate-500 mt-1">Total Records</p>
-    </div>
-    <div class="bg-white rounded-lg shadow-sm border border-green-200 p-4 text-center">
-      <p class="text-3xl font-bold text-green-700" id="stat-clean">0</p>
-      <p class="text-sm text-slate-500 mt-1">Clean</p>
-    </div>
-    <div class="bg-white rounded-lg shadow-sm border border-red-200 p-4 text-center">
-      <p class="text-3xl font-bold text-red-700" id="stat-rejected">0</p>
-      <p class="text-sm text-slate-500 mt-1">Rejected</p>
-    </div>
-    <div class="bg-white rounded-lg shadow-sm border border-amber-200 p-4 text-center">
-      <p class="text-3xl font-bold text-amber-700" id="stat-warnings">0</p>
-      <p class="text-sm text-slate-500 mt-1">Warnings</p>
-    </div>
-    <div class="bg-white rounded-lg shadow-sm border border-teal-200 p-4 text-center">
-      <p class="text-3xl font-bold text-teal-700" id="stat-cleaned">0</p>
-      <p class="text-sm text-slate-500 mt-1">Cleaning Actions</p>
+  <!-- Dashboard Cards (KPI Strip) -->
+  <div class="rounded-lg mb-8 px-6 py-6" style="background-color: #002848;">
+    <div id="dashboard" class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div class="rounded-lg p-4 text-center" style="background-color: rgba(255,255,255,0.1);">
+        <p class="text-3xl font-bold text-white" id="stat-total">0</p>
+        <p class="text-sm mt-1" style="color: rgba(255,255,255,0.7);">Total Records</p>
+      </div>
+      <div class="rounded-lg p-4 text-center" style="background-color: rgba(255,255,255,0.1);">
+        <p class="text-3xl font-bold text-white" id="stat-clean">0</p>
+        <p class="text-sm mt-1" style="color: rgba(255,255,255,0.7);">Clean</p>
+      </div>
+      <div class="rounded-lg p-4 text-center" style="background-color: rgba(255,255,255,0.1);">
+        <p class="text-3xl font-bold" style="color: #FBEAEA;" id="stat-rejected">0</p>
+        <p class="text-sm mt-1" style="color: rgba(255,255,255,0.7);">Rejected</p>
+      </div>
+      <div class="rounded-lg p-4 text-center" style="background-color: rgba(255,255,255,0.1);">
+        <p class="text-3xl font-bold" style="color: #FBEAEA;" id="stat-warnings">0</p>
+        <p class="text-sm mt-1" style="color: rgba(255,255,255,0.7);">Warnings</p>
+      </div>
+      <div class="rounded-lg p-4 text-center" style="background-color: rgba(255,255,255,0.1);">
+        <p class="text-3xl font-bold text-white" id="stat-cleaned">0</p>
+        <p class="text-sm mt-1" style="color: rgba(255,255,255,0.7);">Cleaning Actions</p>
+      </div>
     </div>
   </div>
 
   <!-- Filters -->
-  <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4 no-print">
+  <div class="rounded-lg border p-4 mb-4 no-print" style="background-color: #EEEEEE; border-color: #D1D5DB;">
     <div class="flex flex-wrap gap-4 items-center">
       <div>
-        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Severity</label>
-        <select id="filter-severity" onchange="applyFilters()" class="block mt-1 text-sm border-slate-300 rounded px-2 py-1.5 border">
+        <label class="text-xs font-medium uppercase tracking-wider" style="color: #555555;">Severity</label>
+        <select id="filter-severity" onchange="applyFilters()" class="block mt-1 text-sm rounded px-2 py-1.5 border" style="border-color: #D1D5DB;">
           <option value="">All</option>
           <option value="ERROR">Error</option>
           <option value="WARNING">Warning</option>
@@ -157,55 +207,55 @@
         </select>
       </div>
       <div>
-        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Rule ID</label>
-        <select id="filter-rule" onchange="applyFilters()" class="block mt-1 text-sm border-slate-300 rounded px-2 py-1.5 border">
+        <label class="text-xs font-medium uppercase tracking-wider" style="color: #555555;">Rule ID</label>
+        <select id="filter-rule" onchange="applyFilters()" class="block mt-1 text-sm rounded px-2 py-1.5 border" style="border-color: #D1D5DB;">
           <option value="">All Rules</option>
         </select>
       </div>
       <div>
-        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Field</label>
-        <select id="filter-field" onchange="applyFilters()" class="block mt-1 text-sm border-slate-300 rounded px-2 py-1.5 border">
+        <label class="text-xs font-medium uppercase tracking-wider" style="color: #555555;">Field</label>
+        <select id="filter-field" onchange="applyFilters()" class="block mt-1 text-sm rounded px-2 py-1.5 border" style="border-color: #D1D5DB;">
           <option value="">All Fields</option>
         </select>
       </div>
       <div class="flex-1 min-w-[200px]">
-        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Search</label>
+        <label class="text-xs font-medium uppercase tracking-wider" style="color: #555555;">Search</label>
         <input id="filter-search" type="text" placeholder="Search messages, emails, values..."
                oninput="applyFilters()"
-               class="block mt-1 w-full text-sm border-slate-300 rounded px-2 py-1.5 border">
+               class="block mt-1 w-full text-sm rounded px-2 py-1.5 border" style="border-color: #D1D5DB;">
       </div>
       <div class="self-end">
-        <button onclick="clearFilters()" class="text-sm text-teal-600 hover:text-teal-800 py-1.5">Clear filters</button>
+        <button onclick="clearFilters()" class="text-sm py-1.5 hover:opacity-70" style="color: #333333;">Clear filters</button>
       </div>
     </div>
-    <p class="text-xs text-slate-400 mt-2" id="filter-count"></p>
+    <p class="text-xs mt-2" style="color: #555555;" id="filter-count"></p>
   </div>
 
   <!-- Results Table -->
-  <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
+  <div class="bg-white rounded-lg border table-container" style="border-color: #D1D5DB;">
     <table class="w-full text-sm" id="results-table">
-      <thead class="bg-slate-50 border-b border-slate-200">
+      <thead class="border-b" style="border-color: #D1D5DB;">
         <tr>
-          <th class="px-3 py-2.5 text-left font-medium text-slate-600 cursor-pointer select-none" onclick="sortTable('row_number')">Row</th>
-          <th class="px-3 py-2.5 text-left font-medium text-slate-600 cursor-pointer select-none" onclick="sortTable('severity')">Severity</th>
-          <th class="px-3 py-2.5 text-left font-medium text-slate-600 cursor-pointer select-none" onclick="sortTable('rule_id')">Rule</th>
-          <th class="px-3 py-2.5 text-left font-medium text-slate-600 cursor-pointer select-none" onclick="sortTable('field')">Field</th>
-          <th class="px-3 py-2.5 text-left font-medium text-slate-600 cursor-pointer select-none" onclick="sortTable('message')">Message</th>
-          <th class="px-3 py-2.5 text-left font-medium text-slate-600">Original</th>
-          <th class="px-3 py-2.5 text-left font-medium text-slate-600">Corrected</th>
+          <th class="px-3 py-2.5 text-left text-sm font-semibold uppercase tracking-wider cursor-pointer select-none" style="color: #555555;" onclick="sortTable('row_number')">Row</th>
+          <th class="px-3 py-2.5 text-left text-sm font-semibold uppercase tracking-wider cursor-pointer select-none" style="color: #555555;" onclick="sortTable('severity')">Severity</th>
+          <th class="px-3 py-2.5 text-left text-sm font-semibold uppercase tracking-wider cursor-pointer select-none" style="color: #555555;" onclick="sortTable('rule_id')">Rule</th>
+          <th class="px-3 py-2.5 text-left text-sm font-semibold uppercase tracking-wider cursor-pointer select-none" style="color: #555555;" onclick="sortTable('field')">Field</th>
+          <th class="px-3 py-2.5 text-left text-sm font-semibold uppercase tracking-wider cursor-pointer select-none" style="color: #555555;" onclick="sortTable('message')">Message</th>
+          <th class="px-3 py-2.5 text-left text-sm font-semibold uppercase tracking-wider" style="color: #555555;">Original</th>
+          <th class="px-3 py-2.5 text-left text-sm font-semibold uppercase tracking-wider" style="color: #555555;">Corrected</th>
         </tr>
       </thead>
-      <tbody id="results-body" class="divide-y divide-slate-100">
+      <tbody id="results-body">
       </tbody>
     </table>
   </div>
 
   <!-- Pagination -->
   <div class="flex items-center justify-between mt-4 no-print">
-    <p class="text-sm text-slate-500" id="page-info"></p>
+    <p class="text-sm" style="color: #555555;" id="page-info"></p>
     <div class="flex gap-2">
-      <button id="btn-prev" onclick="changePage(-1)" class="px-3 py-1 text-sm border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-40" disabled>Previous</button>
-      <button id="btn-next" onclick="changePage(1)" class="px-3 py-1 text-sm border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-40" disabled>Next</button>
+      <button id="btn-prev" onclick="changePage(-1)" class="px-3 py-1 text-sm rounded transition text-white disabled:opacity-40 hover:opacity-80" style="background-color: #2D2D2D;" disabled>Previous</button>
+      <button id="btn-next" onclick="changePage(1)" class="px-3 py-1 text-sm rounded transition text-white disabled:opacity-40 hover:opacity-80" style="background-color: #2D2D2D;" disabled>Next</button>
     </div>
   </div>
 
@@ -1247,37 +1297,38 @@ function renderTable() {
 
   pageIssues.forEach(function(issue, idx) {
     const tr = document.createElement("tr");
-    tr.className = "hover:bg-slate-50 cursor-pointer transition-colors";
+    tr.className = "data-row cursor-pointer transition-colors";
     tr.onclick = function() { toggleDetail(start + idx); };
 
     const badgeClass = issue.severity === "ERROR" ? "badge-error" :
                        issue.severity === "WARNING" ? "badge-warning" : "badge-cleaned";
 
     tr.innerHTML =
-      '<td class="px-3 py-2 text-slate-600 font-mono text-xs">' + issue.row_number + '</td>' +
-      '<td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded text-xs font-medium ' + badgeClass + '">' + issue.severity + '</span></td>' +
-      '<td class="px-3 py-2 text-xs font-mono text-slate-500">' + issue.rule_id + '</td>' +
-      '<td class="px-3 py-2 text-xs text-slate-600">' + escapeHtml(issue.field) + '</td>' +
-      '<td class="px-3 py-2 text-xs text-slate-700">' + escapeHtml(issue.message) + '</td>' +
-      '<td class="px-3 py-2 text-xs text-slate-500 max-w-[150px] truncate">' + escapeHtml(String(issue.original_value || "")) + '</td>' +
-      '<td class="px-3 py-2 text-xs text-teal-700 max-w-[150px] truncate">' + escapeHtml(String(issue.corrected_value || "")) + '</td>';
+      '<td class="px-3 py-2 font-mono text-xs" style="color: #1a1a1a;"><span class="chevron" id="chevron-' + (start + idx) + '"></span>' + issue.row_number + '</td>' +
+      '<td class="px-3 py-2"><span class="inline-block px-2 py-1 rounded-full text-sm font-medium whitespace-nowrap ' + badgeClass + '">' + issue.severity + '</span></td>' +
+      '<td class="px-3 py-2 text-sm font-mono" style="color: #555555;">' + issue.rule_id + '</td>' +
+      '<td class="px-3 py-2 text-sm" style="color: #1a1a1a;">' + escapeHtml(issue.field) + '</td>' +
+      '<td class="px-3 py-2 text-sm" style="color: #1a1a1a;">' + escapeHtml(issue.message) + '</td>' +
+      '<td class="px-3 py-2 text-sm max-w-[150px] truncate" style="color: #555555;">' + escapeHtml(String(issue.original_value || "")) + '</td>' +
+      '<td class="px-3 py-2 text-sm max-w-[150px] truncate" style="color: #059669;">' + escapeHtml(String(issue.corrected_value || "")) + '</td>';
 
     tbody.appendChild(tr);
 
     // Detail row
     const detailTr = document.createElement("tr");
-    detailTr.className = "detail-row bg-slate-50";
+    detailTr.className = "detail-row";
     detailTr.id = "detail-" + (start + idx);
+    detailTr.style.backgroundColor = "#EEEEEE";
     const detailTd = document.createElement("td");
     detailTd.colSpan = 7;
     detailTd.className = "px-4 py-3";
 
-    let detailHtml = '<div class="text-xs"><p class="font-semibold text-slate-700 mb-2">Original Record (Row ' + issue.row_number + ')</p>';
+    let detailHtml = '<div class="text-sm"><p class="font-semibold mb-2" style="color: #333333;">Original Record (Row ' + issue.row_number + ')</p>';
     detailHtml += '<div class="grid grid-cols-2 md:grid-cols-4 gap-2">';
     if (issue._originalRow) {
       Object.keys(issue._originalRow).forEach(function(key) {
         const val = issue._originalRow[key];
-        detailHtml += '<div><span class="font-medium text-slate-500">' + escapeHtml(key) + ':</span> <span class="text-slate-700">' + escapeHtml(String(val || "(empty)")) + '</span></div>';
+        detailHtml += '<div><span class="font-medium" style="color: #555555;">' + escapeHtml(key) + ':</span> <span style="color: #1a1a1a;">' + escapeHtml(String(val || "(empty)")) + '</span></div>';
       });
     }
     detailHtml += '</div></div>';
@@ -1298,8 +1349,12 @@ function renderTable() {
 
 function toggleDetail(idx) {
   const el = document.getElementById("detail-" + idx);
+  const chevron = document.getElementById("chevron-" + idx);
   if (el) {
     el.classList.toggle("open");
+    if (chevron) {
+      chevron.classList.toggle("open");
+    }
   }
 }
 
